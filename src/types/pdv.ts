@@ -94,6 +94,19 @@ export interface PDVOperator {
   last_login?: string;
 }
 
+export interface WeightReading {
+  value: number;
+  unit: string;
+  stable: boolean;
+  timestamp: Date;
+}
+
+export interface ScaleConnection {
+  isConnected: boolean;
+  port?: string;
+  model?: string;
+}
+
 export interface PDVCashRegister {
   id: string;
   opening_amount: number;

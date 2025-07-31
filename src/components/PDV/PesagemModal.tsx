@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useWeightFromScale } from "../../hooks/useWeightFromScale";
 import { useEffect, useRef } from "react";
 import { Scale, X, Check, AlertCircle, RefreshCw, Zap } from 'lucide-react';
+import { WeightReading, ScaleConnection } from '../../types/pdv';
 
 export function PesagemModal({ produto, onConfirmar, onFechar, useDirectScale = false }: { 
   produto: any, 
@@ -46,6 +47,8 @@ export function PesagemModal({ produto, onConfirmar, onFechar, useDirectScale = 
 
   const handleConfirmarPeso = () => {
     if (pesoManual <= 0) return;
+    
+    console.log(`✅ Confirmando peso: ${pesoManual}g para produto: ${produto.name || produto.nome}`);
     
     if (isDuplicate && !confirmedRef.current) {
       if (confirm("Esse peso é igual ao anterior. Tem certeza que deseja confirmar novamente?")) {
@@ -144,6 +147,14 @@ export function PesagemModal({ produto, onConfirmar, onFechar, useDirectScale = 
                   }`}>
                     Peso: {pesoManual}g ({(pesoManual / 1000).toFixed(3)} kg)
                   </p>
+                  {produto.price_per_gram && (
+                    <p className="text-sm text-gray-600">
+                      Valor: {new Intl.NumberFormat('pt-BR', {
+                        style: 'currency',
+                        currency: 'BRL'
+                      }).format((pesoManual / 1000) * produto.price_per_gram * 1000)}
+                    </p>
+                  )}
                   {isDuplicate && (
                     <p className="text-sm text-yellow-600 mt-1">
                       ⚠️ Peso igual ao anterior
@@ -203,7 +214,17 @@ export function PesagemModal({ produto, onConfirmar, onFechar, useDirectScale = 
           >
             <div className="flex items-center justify-center gap-3">
               <Check size={24} />
-              <span>Confirmar Peso</span>
+              <span>
+                Confirmar Peso
+                {produto.price_per_gram && pesoManual > 0 && (
+                  <span className="block text-sm opacity-90">
+                    ({new Intl.NumberFormat('pt-BR', {
+                      style: 'currency',
+                      currency: 'BRL'
+                    }).format((pesoManual / 1000) * produto.price_per_gram * 1000)})
+                  </span>
+                )}
+              </span>
             </div>
           </button>
         </div>
