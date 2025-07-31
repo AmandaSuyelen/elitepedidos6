@@ -17,7 +17,15 @@ import {
   AlertCircle,
   Package,
   Scale,
-  Minus
+  Minus,
+  Coffee,
+  Utensils,
+  MapPin,
+  Star,
+  Zap,
+  CreditCard,
+  Banknote,
+  QrCode
 } from 'lucide-react';
 import { RestaurantTable, TableSale, TableSaleItem, TableCartItem } from '../../types/table-sales';
 import { PDVProduct } from '../../types/pdv';
@@ -25,6 +33,7 @@ import { usePDVProducts } from '../../hooks/usePDV';
 import { useStore2Products } from '../../hooks/useStore2Products';
 import { usePermissions } from '../../hooks/usePermissions';
 import { PesagemModal } from '../PDV/PesagemModal';
+import './TableSalesPanel.css';
 
 interface TableSalesPanelProps {
   storeId: number;
@@ -47,6 +56,8 @@ const TableSalesPanel: React.FC<TableSalesPanelProps> = ({ storeId, operatorName
   const [changeFor, setChangeFor] = useState<number | undefined>(undefined);
   const [customerName, setCustomerName] = useState('');
   const [customerCount, setCustomerCount] = useState(1);
+  const [showNewTableModal, setShowNewTableModal] = useState(false);
+  const [newTableData, setNewTableData] = useState({ number: '', name: '', capacity: 4 });
   const { hasPermission } = usePermissions();
 
   // Use appropriate products hook based on store
@@ -68,13 +79,13 @@ const TableSalesPanel: React.FC<TableSalesPanelProps> = ({ storeId, operatorName
   const searchProducts = storeId === 1 ? searchStore1Products : searchStore2Products;
 
   const categories = [
-    { id: 'all', label: 'Todos' },
-    { id: 'acai', label: 'Açaí' },
-    { id: 'bebidas', label: 'Bebidas' },
-    { id: 'complementos', label: 'Complementos' },
-    { id: 'sobremesas', label: 'Sobremesas' },
-    { id: 'sorvetes', label: 'Sorvetes' },
-    { id: 'outros', label: 'Outros' }
+    { id: 'all', label: 'Todos', icon: Package },
+    { id: 'acai', label: 'Açaí', icon: Coffee },
+    { id: 'bebidas', label: 'Bebidas', icon: Coffee },
+    { id: 'complementos', label: 'Complementos', icon: Star },
+    { id: 'sobremesas', label: 'Sobremesas', icon: Star },
+    { id: 'sorvetes', label: 'Sorvetes', icon: Coffee },
+    { id: 'outros', label: 'Outros', icon: Package }
   ];
 
   const formatPrice = (price: number) => {
@@ -120,16 +131,22 @@ const TableSalesPanel: React.FC<TableSalesPanelProps> = ({ storeId, operatorName
     }
   }, [storeId]);
 
-  const createTable = async (number: number, name: string, capacity: number = 4) => {
+  const createTable = async () => {
     try {
+      const number = parseInt(newTableData.number);
+      if (!number || !newTableData.name.trim()) {
+        alert('Número e nome da mesa são obrigatórios');
+        return;
+      }
+
       console.log(`🏗️ Criando mesa ${number} na Loja ${storeId}`);
 
       const { data, error } = await supabase
         .from(getTableName(storeId))
         .insert([{
           number,
-          name,
-          capacity,
+          name: newTableData.name,
+          capacity: newTableData.capacity,
           status: 'livre',
           is_active: true
         }])
@@ -140,10 +157,12 @@ const TableSalesPanel: React.FC<TableSalesPanelProps> = ({ storeId, operatorName
 
       console.log(`✅ Mesa criada na Loja ${storeId}:`, data);
       await fetchTables();
+      setShowNewTableModal(false);
+      setNewTableData({ number: '', name: '', capacity: 4 });
       return data;
     } catch (error) {
       console.error(`❌ Erro ao criar mesa na Loja ${storeId}:`, error);
-      throw error;
+      alert('Erro ao criar mesa');
     }
   };
 
@@ -197,7 +216,6 @@ const TableSalesPanel: React.FC<TableSalesPanelProps> = ({ storeId, operatorName
       await fetchTables();
       setCurrentSale(data);
       setSelectedTable(table);
-      // Reset form data
       setCustomerName('');
       setCustomerCount(1);
       setPaymentMethod('dinheiro');
@@ -220,7 +238,6 @@ const TableSalesPanel: React.FC<TableSalesPanelProps> = ({ storeId, operatorName
     const existingIndex = cartItems.findIndex(item => item.product_code === product.code);
 
     if (existingIndex >= 0) {
-      // Atualizar item existente
       setCartItems(prev => prev.map((item, index) => {
         if (index === existingIndex) {
           const newQuantity = item.quantity + quantity;
@@ -235,7 +252,6 @@ const TableSalesPanel: React.FC<TableSalesPanelProps> = ({ storeId, operatorName
         return item;
       }));
     } else {
-      // Adicionar novo item
       const newItem: TableCartItem = {
         product_code: product.code,
         product_name: product.name,
@@ -251,7 +267,7 @@ const TableSalesPanel: React.FC<TableSalesPanelProps> = ({ storeId, operatorName
 
   const calculateItemSubtotal = (product: PDVProduct, quantity: number, weight?: number): number => {
     if (product.is_weighable && weight && product.price_per_gram) {
-      return weight * 1000 * product.price_per_gram; // peso em kg * 1000 * preço por grama
+      return weight * 1000 * product.price_per_gram;
     } else if (!product.is_weighable && product.unit_price) {
       return quantity * product.unit_price;
     }
@@ -259,19 +275,10 @@ const TableSalesPanel: React.FC<TableSalesPanelProps> = ({ storeId, operatorName
   };
 
   const handleProductClick = (product: PDVProduct) => {
-    console.log(`🔍 Produto clicado - Loja ${storeId}:`, {
-      name: product.name,
-      is_weighable: product.is_weighable,
-      price_per_gram: product.price_per_gram,
-      unit_price: product.unit_price
-    });
-
     if (product.is_weighable) {
-      console.log(`⚖️ Produto pesável detectado - Abrindo modal de peso - Loja ${storeId}`);
       setSelectedWeighableProduct(product);
       setShowWeightModal(true);
     } else {
-      console.log(`📦 Produto unitário - Adicionando diretamente - Loja ${storeId}`);
       addProductToCart(product, 1);
     }
   };
@@ -279,11 +286,6 @@ const TableSalesPanel: React.FC<TableSalesPanelProps> = ({ storeId, operatorName
   const handleWeightConfirm = (weightInGrams: number) => {
     if (selectedWeighableProduct && weightInGrams > 0) {
       const weightInKg = weightInGrams / 1000;
-      console.log(`✅ Peso confirmado para ${selectedWeighableProduct.name} - Loja ${storeId}:`, {
-        weightInGrams,
-        weightInKg,
-        pricePerGram: selectedWeighableProduct.price_per_gram
-      });
       addProductToCart(selectedWeighableProduct, 1, weightInKg);
     }
     setShowWeightModal(false);
@@ -291,7 +293,6 @@ const TableSalesPanel: React.FC<TableSalesPanelProps> = ({ storeId, operatorName
   };
 
   const removeCartItem = (productCode: string) => {
-    console.log(`🗑️ Removendo item do carrinho - Loja ${storeId}:`, productCode);
     setCartItems(prev => prev.filter(item => item.product_code !== productCode));
   };
 
@@ -327,7 +328,6 @@ const TableSalesPanel: React.FC<TableSalesPanelProps> = ({ storeId, operatorName
       setSaving(true);
       console.log(`💾 Finalizando venda da mesa ${selectedTable?.number} - Loja ${storeId}`);
 
-      // Salvar itens da venda
       const saleItems = cartItems.map(item => ({
         sale_id: currentSale.id,
         product_code: item.product_code,
@@ -345,7 +345,6 @@ const TableSalesPanel: React.FC<TableSalesPanelProps> = ({ storeId, operatorName
 
       if (itemsError) throw itemsError;
 
-      // Atualizar totais da venda
       const { error: saleError } = await supabase
         .from(getSalesTableName(storeId))
         .update({
@@ -361,23 +360,21 @@ const TableSalesPanel: React.FC<TableSalesPanelProps> = ({ storeId, operatorName
 
       console.log(`✅ Venda finalizada com sucesso - Loja ${storeId}`);
       
-      // Limpar carrinho
       setCartItems([]);
       setShowProducts(false);
       setCurrentSale(null);
       setSelectedTable(null);
       
-      // Recarregar mesas
       await fetchTables();
 
-      // Mostrar feedback de sucesso
       const successMessage = document.createElement('div');
-      successMessage.className = 'fixed top-4 right-4 bg-green-500 text-white px-4 py-2 rounded-lg shadow-lg z-50 flex items-center gap-2';
+      successMessage.className = 'success-notification';
       successMessage.innerHTML = `
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-        </svg>
-        Venda da mesa ${selectedTable?.number} finalizada com sucesso! - Loja ${storeId}
+        <div class="success-icon">✓</div>
+        <div class="success-text">
+          <div class="success-title">Venda Finalizada!</div>
+          <div class="success-subtitle">Mesa ${selectedTable?.number} - Loja ${storeId}</div>
+        </div>
       `;
       document.body.appendChild(successMessage);
       
@@ -405,152 +402,250 @@ const TableSalesPanel: React.FC<TableSalesPanelProps> = ({ storeId, operatorName
     return result.filter(p => p.is_active);
   }, [products, searchProducts, searchTerm, selectedCategory]);
 
+  const getTableStatusColor = (status: string) => {
+    switch (status) {
+      case 'livre': return 'table-free';
+      case 'ocupada': return 'table-occupied';
+      case 'aguardando_conta': return 'table-waiting';
+      case 'limpeza': return 'table-cleaning';
+      default: return 'table-free';
+    }
+  };
+
+  const getTableStatusLabel = (status: string) => {
+    switch (status) {
+      case 'livre': return 'Livre';
+      case 'ocupada': return 'Ocupada';
+      case 'aguardando_conta': return 'Aguardando Conta';
+      case 'limpeza': return 'Limpeza';
+      default: return 'Livre';
+    }
+  };
+
+  const getPaymentIcon = (method: string) => {
+    switch (method) {
+      case 'dinheiro': return <Banknote size={20} />;
+      case 'pix': return <QrCode size={20} />;
+      case 'cartao_credito':
+      case 'cartao_debito': return <CreditCard size={20} />;
+      default: return <DollarSign size={20} />;
+    }
+  };
+
+  const getPaymentLabel = (method: string) => {
+    switch (method) {
+      case 'dinheiro': return 'Dinheiro';
+      case 'pix': return 'PIX';
+      case 'cartao_credito': return 'Cartão de Crédito';
+      case 'cartao_debito': return 'Cartão de Débito';
+      case 'voucher': return 'Voucher';
+      default: return method;
+    }
+  };
+
   useEffect(() => {
     fetchTables();
   }, [fetchTables]);
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
-        <span className="ml-2 text-gray-600">Carregando dados da Loja {storeId}...</span>
+      <div className="loading-container">
+        <div className="loading-spinner"></div>
+        <span className="loading-text">Carregando dados da Loja {storeId}...</span>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="table-sales-container">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-semibold text-gray-800 flex items-center gap-2">
-            <Users size={24} className="text-indigo-600" />
-            Vendas de Mesa - Loja {storeId}
-          </h2>
-          <p className="text-gray-600">
-            {storeId === 1 ? 'Rua Um, 1614-C' : 'Rua Dois, 2130-A'} - Gestão de mesas e vendas presenciais
-          </p>
+      <div className="header-section">
+        <div className="header-content">
+          <div className="header-info">
+            <div className="header-icon">
+              <Utensils size={32} />
+            </div>
+            <div className="header-text">
+              <h1 className="header-title">Vendas de Mesa - Loja {storeId}</h1>
+              <p className="header-subtitle">
+                {storeId === 1 ? 'Rua Um, 1614-C' : 'Rua Dois, 2130-A'} - Gestão de mesas e vendas presenciais
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setShowNewTableModal(true)}
+            className="btn-primary header-btn"
+          >
+            <Plus size={20} />
+            Nova Mesa
+          </button>
         </div>
-        <button
-          onClick={() => {
-            const tableNumber = prompt(`Número da nova mesa - Loja ${storeId}:`);
-            const tableName = prompt(`Nome da mesa - Loja ${storeId}:`);
-            
-            if (tableNumber && tableName) {
-              createTable(parseInt(tableNumber), tableName);
-            }
-          }}
-          className="bg-indigo-500 hover:bg-indigo-600 text-white px-4 py-2 rounded-lg transition-colors flex items-center gap-2"
-        >
-          <Plus size={20} />
-          Nova Mesa
-        </button>
       </div>
 
       {/* Tables Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+      <div className="tables-grid">
         {tables.map((table) => (
           <div
             key={table.id}
-            className={`bg-white rounded-xl shadow-sm border-2 p-4 cursor-pointer transition-all hover:shadow-md ${
-              table.status === 'livre' 
-                ? 'border-green-200 hover:border-green-300' 
-                : table.status === 'ocupada'
-                ? 'border-red-200 hover:border-red-300'
-                : 'border-yellow-200 hover:border-yellow-300'
-            }`}
+            className={`table-card ${getTableStatusColor(table.status)}`}
+            onClick={() => {
+              if (table.status === 'livre') {
+                openTableSale(table);
+              } else if (table.current_sale) {
+                setSelectedTable(table);
+                setCurrentSale(table.current_sale);
+                setShowProducts(true);
+              }
+            }}
           >
-            <div className="text-center relative">
-              {/* Delete button - only for free tables */}
-              {table.status === 'livre' && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    deleteTable(table);
-                  }}
-                  className="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full p-1 shadow-lg transition-colors"
-                  title="Excluir mesa"
-                >
-                  <X size={14} />
-                </button>
-              )}
+            {table.status === 'livre' && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  deleteTable(table);
+                }}
+                className="table-delete-btn"
+                title="Excluir mesa"
+              >
+                <X size={16} />
+              </button>
+            )}
 
-              <div className={`w-12 h-12 rounded-full mx-auto mb-2 flex items-center justify-center ${
-                table.status === 'livre' 
-                  ? 'bg-green-100 text-green-600' 
-                  : table.status === 'ocupada'
-                  ? 'bg-red-100 text-red-600'
-                  : 'bg-yellow-100 text-yellow-600'
-              }`}>
-                <Users size={24} />
-              </div>
-              
-              <h3 className="font-semibold text-gray-800">Mesa {table.number}</h3>
-              <p className="text-sm text-gray-600">{table.name}</p>
-              <p className="text-xs text-gray-500">
-                {table.capacity} pessoa(s)
-              </p>
-              
-              <div className={`mt-2 px-2 py-1 rounded-full text-xs font-medium ${
-                table.status === 'livre' 
-                  ? 'bg-green-100 text-green-800' 
-                  : table.status === 'ocupada'
-                  ? 'bg-red-100 text-red-800'
-                  : 'bg-yellow-100 text-yellow-800'
-              }`}>
-                {table.status === 'livre' ? 'Livre' : 
-                 table.status === 'ocupada' ? 'Ocupada' : 
-                 table.status === 'aguardando_conta' ? 'Aguardando Conta' : 'Limpeza'}
+            <div className="table-icon">
+              <Users size={28} />
+            </div>
+            
+            <div className="table-info">
+              <h3 className="table-number">Mesa {table.number}</h3>
+              <p className="table-name">{table.name}</p>
+              <div className="table-capacity">
+                <Users size={14} />
+                <span>{table.capacity} pessoas</span>
               </div>
             </div>
             
-            {/* Click handler moved to separate div to avoid conflicts with delete button */}
-            <div 
-              className="absolute inset-0 cursor-pointer"
-              onClick={() => {
-                if (table.status === 'livre') {
-                  openTableSale(table);
-                } else if (table.current_sale) {
-                  setSelectedTable(table);
-                  setCurrentSale(table.current_sale);
-                  setShowProducts(true);
-                }
-              }}
-            />
+            <div className="table-status">
+              {getTableStatusLabel(table.status)}
+            </div>
+
+            {table.status === 'ocupada' && table.current_sale && (
+              <div className="table-sale-info">
+                <div className="sale-customer">
+                  {table.current_sale.customer_name || 'Cliente'}
+                </div>
+                <div className="sale-time">
+                  <Clock size={12} />
+                  {new Date(table.current_sale.opened_at).toLocaleTimeString('pt-BR', {
+                    hour: '2-digit',
+                    minute: '2-digit'
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         ))}
       </div>
 
       {tables.length === 0 && (
-        <div className="text-center py-12">
-          <Users size={48} className="mx-auto text-gray-300 mb-4" />
-          <p className="text-gray-500">Nenhuma mesa cadastrada para a Loja {storeId}</p>
+        <div className="empty-state">
+          <div className="empty-icon">
+            <Utensils size={64} />
+          </div>
+          <h3 className="empty-title">Nenhuma mesa cadastrada</h3>
+          <p className="empty-subtitle">Crie a primeira mesa para começar a gerenciar vendas presenciais</p>
           <button
-            onClick={() => {
-              const tableNumber = prompt(`Número da primeira mesa - Loja ${storeId}:`);
-              const tableName = prompt(`Nome da mesa - Loja ${storeId}:`);
-              
-              if (tableNumber && tableName) {
-                createTable(parseInt(tableNumber), tableName);
-              }
-            }}
-            className="mt-4 bg-indigo-500 hover:bg-indigo-600 text-white px-6 py-2 rounded-lg transition-colors"
+            onClick={() => setShowNewTableModal(true)}
+            className="btn-primary"
           >
+            <Plus size={20} />
             Criar Primeira Mesa
           </button>
         </div>
       )}
 
+      {/* New Table Modal */}
+      {showNewTableModal && (
+        <div className="modal-overlay">
+          <div className="modal-container">
+            <div className="modal-header">
+              <h2 className="modal-title">Nova Mesa - Loja {storeId}</h2>
+              <button
+                onClick={() => setShowNewTableModal(false)}
+                className="modal-close-btn"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="modal-content">
+              <div className="form-group">
+                <label className="form-label">Número da Mesa *</label>
+                <input
+                  type="number"
+                  value={newTableData.number}
+                  onChange={(e) => setNewTableData(prev => ({ ...prev, number: e.target.value }))}
+                  className="form-input"
+                  placeholder="Ex: 1"
+                  min="1"
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Nome da Mesa *</label>
+                <input
+                  type="text"
+                  value={newTableData.name}
+                  onChange={(e) => setNewTableData(prev => ({ ...prev, name: e.target.value }))}
+                  className="form-input"
+                  placeholder="Ex: Mesa Principal"
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Capacidade</label>
+                <input
+                  type="number"
+                  value={newTableData.capacity}
+                  onChange={(e) => setNewTableData(prev => ({ ...prev, capacity: parseInt(e.target.value) || 4 }))}
+                  className="form-input"
+                  placeholder="4"
+                  min="1"
+                  max="20"
+                />
+              </div>
+            </div>
+
+            <div className="modal-footer">
+              <button
+                onClick={() => setShowNewTableModal(false)}
+                className="btn-secondary"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={createTable}
+                className="btn-primary"
+                disabled={!newTableData.number || !newTableData.name.trim()}
+              >
+                <Save size={16} />
+                Criar Mesa
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Products Modal */}
       {showProducts && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl max-w-7xl w-full max-h-[90vh] overflow-hidden flex">
-            {/* Customer Info Section */}
-            <div className="w-80 bg-gray-50 p-6 border-r border-gray-200">
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-lg font-semibold text-gray-800">
-                  Mesa {selectedTable?.number}
-                </h3>
+        <div className="modal-overlay products-modal">
+          <div className="products-modal-container">
+            {/* Sidebar */}
+            <div className="products-sidebar">
+              <div className="sidebar-header">
+                <div className="sidebar-title">
+                  <div className="table-badge">Mesa {selectedTable?.number}</div>
+                  <h3 className="sidebar-table-name">{selectedTable?.name}</h3>
+                </div>
                 <button
                   onClick={() => {
                     setShowProducts(false);
@@ -558,297 +653,255 @@ const TableSalesPanel: React.FC<TableSalesPanelProps> = ({ storeId, operatorName
                     setSelectedTable(null);
                     setCartItems([]);
                   }}
-                  className="p-2 hover:bg-gray-200 rounded-full transition-colors"
+                  className="sidebar-close-btn"
                 >
                   <X size={20} />
                 </button>
               </div>
 
               {/* Customer Info */}
-              <div className="space-y-4 mb-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Nome do Cliente
-                  </label>
+              <div className="customer-section">
+                <h4 className="section-title">Informações do Cliente</h4>
+                
+                <div className="form-group">
+                  <label className="form-label">Nome do Cliente</label>
                   <input
                     type="text"
                     value={customerName}
                     onChange={(e) => setCustomerName(e.target.value)}
-                    className="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="form-input"
                     placeholder="Nome do cliente"
                   />
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Número de Pessoas
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={customerCount}
-                    onChange={(e) => setCustomerCount(parseInt(e.target.value) || 1)}
-                    className="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
+                <div className="form-group">
+                  <label className="form-label">Número de Pessoas</label>
+                  <div className="quantity-selector">
+                    <button
+                      onClick={() => setCustomerCount(Math.max(1, customerCount - 1))}
+                      className="quantity-btn"
+                    >
+                      <Minus size={16} />
+                    </button>
+                    <span className="quantity-value">{customerCount}</span>
+                    <button
+                      onClick={() => setCustomerCount(customerCount + 1)}
+                      className="quantity-btn"
+                    >
+                      <Plus size={16} />
+                    </button>
+                  </div>
                 </div>
               </div>
 
               {/* Payment Method */}
-              <div className="space-y-4">
-                <h4 className="font-medium text-gray-800">Forma de Pagamento</h4>
-                <select
-                  value={paymentMethod}
-                  onChange={(e) => setPaymentMethod(e.target.value as any)}
-                  className="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                >
-                  <option value="dinheiro">Dinheiro</option>
-                  <option value="pix">PIX</option>
-                  <option value="cartao_credito">Cartão de Crédito</option>
-                  <option value="cartao_debito">Cartão de Débito</option>
-                  <option value="voucher">Voucher</option>
-                </select>
+              <div className="payment-section">
+                <h4 className="section-title">Forma de Pagamento</h4>
+                
+                <div className="payment-methods">
+                  {[
+                    { value: 'dinheiro', label: 'Dinheiro', icon: Banknote },
+                    { value: 'pix', label: 'PIX', icon: QrCode },
+                    { value: 'cartao_credito', label: 'Cartão Crédito', icon: CreditCard },
+                    { value: 'cartao_debito', label: 'Cartão Débito', icon: CreditCard }
+                  ].map((method) => {
+                    const Icon = method.icon;
+                    return (
+                      <button
+                        key={method.value}
+                        onClick={() => setPaymentMethod(method.value as any)}
+                        className={`payment-method ${paymentMethod === method.value ? 'active' : ''}`}
+                      >
+                        <Icon size={18} />
+                        <span>{method.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
 
                 {paymentMethod === 'dinheiro' && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Troco para:
-                    </label>
+                  <div className="form-group">
+                    <label className="form-label">Troco para:</label>
                     <input
                       type="number"
                       step="0.01"
                       value={changeFor || ''}
                       onChange={(e) => setChangeFor(parseFloat(e.target.value) || undefined)}
-                      className="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      className="form-input"
                       placeholder="Valor para troco"
                     />
                   </div>
                 )}
               </div>
+
+              {/* Cart Summary */}
+              {cartItems.length > 0 && (
+                <div className="cart-summary">
+                  <h4 className="section-title">Resumo do Pedido</h4>
+                  
+                  <div className="cart-items">
+                    {cartItems.map((item, index) => (
+                      <div key={index} className="cart-item">
+                        <div className="cart-item-info">
+                          <h5 className="cart-item-name">{item.product_name}</h5>
+                          {item.weight && (
+                            <p className="cart-item-weight">
+                              Peso: {(item.weight * 1000).toFixed(0)}g
+                            </p>
+                          )}
+                          <div className="cart-item-controls">
+                            <button
+                              onClick={() => updateCartItemQuantity(item.product_code, item.quantity - 1)}
+                              className="quantity-btn small"
+                            >
+                              <Minus size={12} />
+                            </button>
+                            <span className="quantity-display">{item.quantity}</span>
+                            <button
+                              onClick={() => updateCartItemQuantity(item.product_code, item.quantity + 1)}
+                              className="quantity-btn small"
+                            >
+                              <Plus size={12} />
+                            </button>
+                          </div>
+                        </div>
+                        <div className="cart-item-actions">
+                          <div className="cart-item-price">{formatPrice(item.subtotal)}</div>
+                          <button
+                            onClick={() => removeCartItem(item.product_code)}
+                            className="remove-item-btn"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="cart-total">
+                    <div className="total-label">Total:</div>
+                    <div className="total-value">{formatPrice(getCartTotal())}</div>
+                  </div>
+
+                  <button
+                    onClick={finalizeSale}
+                    disabled={saving || cartItems.length === 0}
+                    className="btn-success finalize-btn"
+                  >
+                    {saving ? (
+                      <>
+                        <div className="loading-spinner small"></div>
+                        Finalizando...
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle size={20} />
+                        Finalizar Venda
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
             </div>
 
-            {/* Products Section */}
-            <div className="flex-1 p-6 overflow-y-auto">
-              <div className="mb-6">
-                <h3 className="text-xl font-semibold text-gray-800 mb-2">
+            {/* Main Content */}
+            <div className="products-main">
+              <div className="products-header">
+                <h3 className="products-title">
                   Produtos Disponíveis - Loja {storeId}
                 </h3>
-                <p className="text-gray-600">
-                  {selectedTable?.name} - Capacidade: {selectedTable?.capacity} pessoas
-                </p>
+                <div className="products-info">
+                  <MapPin size={16} />
+                  <span>{selectedTable?.name} - Capacidade: {selectedTable?.capacity} pessoas</span>
+                </div>
               </div>
 
               {/* Search and Filters */}
-              <div className="mb-6 space-y-4">
-                <div className="relative">
-                  <Search size={20} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+              <div className="products-filters">
+                <div className="search-container">
+                  <Search size={20} />
                   <input
                     type="text"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     placeholder={`Buscar produtos da Loja ${storeId}...`}
-                    className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="search-input"
                   />
                 </div>
 
-                <div className="flex flex-wrap gap-2">
-                  {categories.map(cat => (
-                    <button
-                      key={cat.id}
-                      onClick={() => setSelectedCategory(cat.id)}
-                      className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                        selectedCategory === cat.id
-                          ? 'bg-indigo-600 text-white'
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                      }`}
-                    >
-                      {cat.label}
-                    </button>
-                  ))}
+                <div className="category-filters">
+                  {categories.map(cat => {
+                    const Icon = cat.icon;
+                    return (
+                      <button
+                        key={cat.id}
+                        onClick={() => setSelectedCategory(cat.id)}
+                        className={`category-btn ${selectedCategory === cat.id ? 'active' : ''}`}
+                      >
+                        <Icon size={16} />
+                        {cat.label}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
               {/* Products Grid */}
               {productsLoading ? (
-                <div className="flex items-center justify-center h-64">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
-                  <span className="ml-2 text-gray-600">Carregando produtos...</span>
+                <div className="products-loading">
+                  <div className="loading-spinner"></div>
+                  <span>Carregando produtos...</span>
                 </div>
               ) : (
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4 max-h-96 overflow-y-auto">
+                <div className="products-grid">
                   {filteredProducts.map(product => (
                     <div
                       key={product.id}
                       onClick={() => handleProductClick(product)}
-                      className="bg-gray-50 rounded-lg p-4 cursor-pointer hover:bg-gray-100 transition-colors border-2 border-transparent hover:border-indigo-300"
+                      className="product-card"
                     >
-                      <div className="aspect-square bg-gray-200 rounded-lg mb-3 flex items-center justify-center">
+                      <div className="product-image">
                         {product.image_url ? (
                           <img
                             src={product.image_url}
                             alt={product.name}
-                            className="w-full h-full object-cover rounded-lg"
+                            className="product-img"
                           />
                         ) : (
-                          <Package size={32} className="text-gray-400" />
+                          <div className="product-placeholder">
+                            <Package size={32} />
+                          </div>
                         )}
                       </div>
                       
-                      <h3 className="font-medium text-gray-800 text-sm mb-2 line-clamp-2">
-                        {product.name}
-                      </h3>
-                      
-                      <div className="flex items-center justify-between">
-                        <div>
+                      <div className="product-info">
+                        <h4 className="product-name">{product.name}</h4>
+                        
+                        <div className="product-price">
                           {product.is_weighable ? (
-                            <div className="flex items-center gap-1 text-indigo-600 font-bold text-sm">
-                              <Scale size={12} />
-                              {formatPrice((product.price_per_gram || 0) * 1000)}/kg
+                            <div className="price-weighable">
+                              <Scale size={14} />
+                              <span>{formatPrice((product.price_per_gram || 0) * 1000)}/kg</span>
                             </div>
                           ) : (
-                            <div className="font-bold text-indigo-600 text-sm">
-                              {formatPrice(product.unit_price || 0)}
-                            </div>
+                            <span className="price-unit">{formatPrice(product.unit_price || 0)}</span>
                           )}
                         </div>
-                        
-                        <button 
-                          className="bg-indigo-500 hover:bg-indigo-600 text-white p-2 rounded-full"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleProductClick(product);
-                          }}
-                        >
-                          {product.is_weighable ? <Scale size={16} /> : <Plus size={16} />}
-                        </button>
                       </div>
+                      
+                      <button className="product-add-btn">
+                        {product.is_weighable ? <Scale size={16} /> : <Plus size={16} />}
+                      </button>
                     </div>
                   ))}
                 </div>
               )}
 
               {filteredProducts.length === 0 && !productsLoading && (
-                <div className="text-center py-12">
-                  <Package size={48} className="mx-auto text-gray-300 mb-4" />
-                  <p className="text-gray-500">Nenhum produto encontrado na Loja {storeId}</p>
+                <div className="empty-products">
+                  <Package size={48} />
+                  <p>Nenhum produto encontrado na Loja {storeId}</p>
                 </div>
-              )}
-            </div>
-
-            {/* Cart Section */}
-            <div className="w-80 bg-white p-6 border-l border-gray-200">
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
-                  <ShoppingCart size={20} className="text-indigo-600" />
-                  Carrinho
-                </h3>
-                <div className="bg-indigo-100 text-indigo-800 px-3 py-1 rounded-full text-sm font-medium">
-                  {cartItems.length} {cartItems.length === 1 ? 'item' : 'itens'}
-                </div>
-              </div>
-
-              {/* Cart Items */}
-              <div className="space-y-3 mb-6 max-h-48 overflow-y-auto">
-                {cartItems.length === 0 ? (
-                  <div className="text-center py-8">
-                    <ShoppingCart size={32} className="mx-auto text-gray-300 mb-2" />
-                    <p className="text-gray-500">Carrinho vazio</p>
-                    <p className="text-gray-400 text-sm">Selecione produtos para adicionar</p>
-                  </div>
-                ) : (
-                  cartItems.map((item, index) => (
-                    <div key={index} className="bg-gray-50 rounded-lg p-3 border border-gray-200">
-                      <div className="flex justify-between items-start mb-2">
-                        <div className="flex-1">
-                          <h4 className="font-medium text-gray-800 text-sm">{item.product_name}</h4>
-                          {item.weight && (
-                            <p className="text-xs text-gray-600">
-                              Peso: {(item.weight * 1000).toFixed(0)}g
-                            </p>
-                          )}
-                        </div>
-                        <button
-                          onClick={() => removeCartItem(item.product_code)}
-                          className="text-red-500 hover:text-red-700 p-1"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                      
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => updateCartItemQuantity(item.product_code, item.quantity - 1)}
-                            className="bg-gray-200 hover:bg-gray-300 rounded-full p-1"
-                          >
-                            <Minus size={14} />
-                          </button>
-                          <span className="font-medium w-8 text-center">{item.quantity}</span>
-                          <button
-                            onClick={() => updateCartItemQuantity(item.product_code, item.quantity + 1)}
-                            className="bg-gray-200 hover:bg-gray-300 rounded-full p-1"
-                          >
-                            <Plus size={14} />
-                          </button>
-                        </div>
-                        <div className="font-bold text-indigo-600">
-                          {formatPrice(item.subtotal)}
-                        </div>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-
-              {/* Cart Summary */}
-              {cartItems.length > 0 && (
-                <>
-                  {/* Payment Summary */}
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
-                    <h4 className="font-medium text-blue-800 mb-2">Resumo do Pagamento</h4>
-                    <div className="space-y-1 text-sm">
-                      <div className="flex justify-between">
-                        <span className="text-blue-700">Forma:</span>
-                        <span className="font-medium text-blue-800">
-                          {paymentMethod === 'dinheiro' ? 'Dinheiro' :
-                           paymentMethod === 'pix' ? 'PIX' :
-                           paymentMethod === 'cartao_credito' ? 'Cartão de Crédito' :
-                           paymentMethod === 'cartao_debito' ? 'Cartão de Débito' : 'Voucher'}
-                        </span>
-                      </div>
-                      {changeFor && (
-                        <div className="flex justify-between">
-                          <span className="text-blue-700">Troco para:</span>
-                          <span className="font-medium text-blue-800">{formatPrice(changeFor)}</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="border-t pt-4 space-y-2 mb-6">
-                    <div className="flex justify-between font-bold text-lg">
-                      <span>Total:</span>
-                      <span className="text-indigo-600">{formatPrice(getCartTotal())}</span>
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={finalizeSale}
-                    disabled={saving || cartItems.length === 0}
-                    className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 text-white py-3 rounded-lg font-semibold transition-colors flex items-center justify-center gap-2"
-                  >
-                    {saving ? (
-                      <>
-                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-                        Finalizando...
-                      </>
-                    ) : (
-                      <>
-                        <Save size={20} />
-                        Finalizar Venda
-                      </>
-                    )}
-                  </button>
-                </>
               )}
             </div>
           </div>
@@ -861,7 +914,6 @@ const TableSalesPanel: React.FC<TableSalesPanelProps> = ({ storeId, operatorName
           produto={selectedWeighableProduct}
           onConfirmar={handleWeightConfirm}
           onFechar={() => {
-            console.log(`❌ Modal de peso cancelada - Loja ${storeId}`);
             setShowWeightModal(false);
             setSelectedWeighableProduct(null);
           }}
