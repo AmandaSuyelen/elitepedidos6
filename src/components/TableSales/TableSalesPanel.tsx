@@ -23,6 +23,7 @@ import { RestaurantTable, TableSale, TableSaleItem, TableCartItem } from '../../
 import { PDVProduct } from '../../types/pdv';
 import { usePDVProducts } from '../../hooks/usePDV';
 import { useStore2Products } from '../../hooks/useStore2Products';
+import { usePermissions } from '../../hooks/usePermissions';
 import { PesagemModal } from '../PDV/PesagemModal';
 
 interface TableSalesPanelProps {
@@ -42,6 +43,11 @@ const TableSalesPanel: React.FC<TableSalesPanelProps> = ({ storeId, operatorName
   const [saving, setSaving] = useState(false);
   const [showWeightModal, setShowWeightModal] = useState(false);
   const [selectedWeighableProduct, setSelectedWeighableProduct] = useState<PDVProduct | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState<'dinheiro' | 'pix' | 'cartao_credito' | 'cartao_debito' | 'voucher'>('dinheiro');
+  const [changeFor, setChangeFor] = useState<number | undefined>(undefined);
+  const [customerName, setCustomerName] = useState('');
+  const [customerCount, setCustomerCount] = useState(1);
+  const { hasPermission } = usePermissions();
 
   // Use appropriate products hook based on store
   const { 
@@ -141,6 +147,34 @@ const TableSalesPanel: React.FC<TableSalesPanelProps> = ({ storeId, operatorName
     }
   };
 
+  const deleteTable = async (table: RestaurantTable) => {
+    if (table.status !== 'livre') {
+      alert('Não é possível excluir uma mesa ocupada. Finalize a venda primeiro.');
+      return;
+    }
+
+    if (!confirm(`Tem certeza que deseja excluir a Mesa ${table.number} - ${table.name}?`)) {
+      return;
+    }
+
+    try {
+      console.log(`🗑️ Excluindo mesa ${table.number} da Loja ${storeId}`);
+
+      const { error } = await supabase
+        .from(getTableName(storeId))
+        .delete()
+        .eq('id', table.id);
+
+      if (error) throw error;
+
+      console.log(`✅ Mesa ${table.number} excluída da Loja ${storeId}`);
+      await fetchTables();
+    } catch (error) {
+      console.error(`❌ Erro ao excluir mesa da Loja ${storeId}:`, error);
+      alert('Erro ao excluir mesa');
+    }
+  };
+
   const openTableSale = async (table: RestaurantTable) => {
     try {
       console.log(`🆕 Abrindo venda para mesa ${table.number} - Loja ${storeId}`);
@@ -150,7 +184,8 @@ const TableSalesPanel: React.FC<TableSalesPanelProps> = ({ storeId, operatorName
         .insert([{
           table_id: table.id,
           operator_name: operatorName || 'Operador',
-          customer_count: 1,
+          customer_count: customerCount,
+          customer_name: customerName,
           status: 'aberta'
         }])
         .select()
@@ -162,6 +197,11 @@ const TableSalesPanel: React.FC<TableSalesPanelProps> = ({ storeId, operatorName
       await fetchTables();
       setCurrentSale(data);
       setSelectedTable(table);
+      // Reset form data
+      setCustomerName('');
+      setCustomerCount(1);
+      setPaymentMethod('dinheiro');
+      setChangeFor(undefined);
       setShowProducts(true);
     } catch (error) {
       console.error(`❌ Erro ao abrir venda da mesa - Loja ${storeId}:`, error);
@@ -311,6 +351,8 @@ const TableSalesPanel: React.FC<TableSalesPanelProps> = ({ storeId, operatorName
         .update({
           subtotal: getCartTotal(),
           total_amount: getCartTotal(),
+          payment_type: paymentMethod,
+          change_amount: changeFor || 0,
           updated_at: new Date().toISOString()
         })
         .eq('id', currentSale.id);
@@ -417,17 +459,22 @@ const TableSalesPanel: React.FC<TableSalesPanelProps> = ({ storeId, operatorName
                 ? 'border-red-200 hover:border-red-300'
                 : 'border-yellow-200 hover:border-yellow-300'
             }`}
-            onClick={() => {
-              if (table.status === 'livre') {
-                openTableSale(table);
-              } else if (table.current_sale) {
-                setSelectedTable(table);
-                setCurrentSale(table.current_sale);
-                setShowProducts(true);
-              }
-            }}
           >
-            <div className="text-center">
+            <div className="text-center relative">
+              {/* Delete button - only for free tables */}
+              {table.status === 'livre' && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    deleteTable(table);
+                  }}
+                  className="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full p-1 shadow-lg transition-colors"
+                  title="Excluir mesa"
+                >
+                  <X size={14} />
+                </button>
+              )}
+
               <div className={`w-12 h-12 rounded-full mx-auto mb-2 flex items-center justify-center ${
                 table.status === 'livre' 
                   ? 'bg-green-100 text-green-600' 
@@ -456,6 +503,20 @@ const TableSalesPanel: React.FC<TableSalesPanelProps> = ({ storeId, operatorName
                  table.status === 'aguardando_conta' ? 'Aguardando Conta' : 'Limpeza'}
               </div>
             </div>
+            
+            {/* Click handler moved to separate div to avoid conflicts with delete button */}
+            <div 
+              className="absolute inset-0 cursor-pointer"
+              onClick={() => {
+                if (table.status === 'livre') {
+                  openTableSale(table);
+                } else if (table.current_sale) {
+                  setSelectedTable(table);
+                  setCurrentSale(table.current_sale);
+                  setShowProducts(true);
+                }
+              }}
+            />
           </div>
         ))}
       </div>
@@ -483,18 +544,13 @@ const TableSalesPanel: React.FC<TableSalesPanelProps> = ({ storeId, operatorName
       {/* Products Modal */}
       {showProducts && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl max-w-6xl w-full max-h-[90vh] overflow-hidden flex">
-            {/* Products Section */}
-            <div className="flex-1 p-6 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-7xl w-full max-h-[90vh] overflow-hidden flex">
+            {/* Customer Info Section */}
+            <div className="w-80 bg-gray-50 p-6 border-r border-gray-200">
               <div className="flex items-center justify-between mb-6">
-                <div>
-                  <h3 className="text-xl font-semibold text-gray-800">
-                    Produtos Disponíveis - Loja {storeId}
-                  </h3>
-                  <p className="text-gray-600">
-                    Mesa {selectedTable?.number} - {selectedTable?.name}
-                  </p>
-                </div>
+                <h3 className="text-lg font-semibold text-gray-800">
+                  Mesa {selectedTable?.number}
+                </h3>
                 <button
                   onClick={() => {
                     setShowProducts(false);
@@ -502,10 +558,83 @@ const TableSalesPanel: React.FC<TableSalesPanelProps> = ({ storeId, operatorName
                     setSelectedTable(null);
                     setCartItems([]);
                   }}
-                  className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+                  className="p-2 hover:bg-gray-200 rounded-full transition-colors"
                 >
                   <X size={20} />
                 </button>
+              </div>
+
+              {/* Customer Info */}
+              <div className="space-y-4 mb-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Nome do Cliente
+                  </label>
+                  <input
+                    type="text"
+                    value={customerName}
+                    onChange={(e) => setCustomerName(e.target.value)}
+                    className="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    placeholder="Nome do cliente"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Número de Pessoas
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={customerCount}
+                    onChange={(e) => setCustomerCount(parseInt(e.target.value) || 1)}
+                    className="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+
+              {/* Payment Method */}
+              <div className="space-y-4">
+                <h4 className="font-medium text-gray-800">Forma de Pagamento</h4>
+                <select
+                  value={paymentMethod}
+                  onChange={(e) => setPaymentMethod(e.target.value as any)}
+                  className="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="dinheiro">Dinheiro</option>
+                  <option value="pix">PIX</option>
+                  <option value="cartao_credito">Cartão de Crédito</option>
+                  <option value="cartao_debito">Cartão de Débito</option>
+                  <option value="voucher">Voucher</option>
+                </select>
+
+                {paymentMethod === 'dinheiro' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Troco para:
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={changeFor || ''}
+                      onChange={(e) => setChangeFor(parseFloat(e.target.value) || undefined)}
+                      className="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      placeholder="Valor para troco"
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Products Section */}
+            <div className="flex-1 p-6 overflow-y-auto">
+              <div className="mb-6">
+                <h3 className="text-xl font-semibold text-gray-800 mb-2">
+                  Produtos Disponíveis - Loja {storeId}
+                </h3>
+                <p className="text-gray-600">
+                  {selectedTable?.name} - Capacidade: {selectedTable?.capacity} pessoas
+                </p>
               </div>
 
               {/* Search and Filters */}
@@ -545,7 +674,7 @@ const TableSalesPanel: React.FC<TableSalesPanelProps> = ({ storeId, operatorName
                   <span className="ml-2 text-gray-600">Carregando produtos...</span>
                 </div>
               ) : (
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 max-h-96 overflow-y-auto">
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4 max-h-96 overflow-y-auto">
                   {filteredProducts.map(product => (
                     <div
                       key={product.id}
@@ -606,7 +735,7 @@ const TableSalesPanel: React.FC<TableSalesPanelProps> = ({ storeId, operatorName
             </div>
 
             {/* Cart Section */}
-            <div className="w-96 bg-gray-50 p-6 border-l border-gray-200">
+            <div className="w-80 bg-white p-6 border-l border-gray-200">
               <div className="flex items-center justify-between mb-6">
                 <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
                   <ShoppingCart size={20} className="text-indigo-600" />
@@ -618,7 +747,7 @@ const TableSalesPanel: React.FC<TableSalesPanelProps> = ({ storeId, operatorName
               </div>
 
               {/* Cart Items */}
-              <div className="space-y-3 mb-6 max-h-64 overflow-y-auto">
+              <div className="space-y-3 mb-6 max-h-48 overflow-y-auto">
                 {cartItems.length === 0 ? (
                   <div className="text-center py-8">
                     <ShoppingCart size={32} className="mx-auto text-gray-300 mb-2" />
@@ -627,7 +756,7 @@ const TableSalesPanel: React.FC<TableSalesPanelProps> = ({ storeId, operatorName
                   </div>
                 ) : (
                   cartItems.map((item, index) => (
-                    <div key={index} className="bg-white rounded-lg p-3 border border-gray-200">
+                    <div key={index} className="bg-gray-50 rounded-lg p-3 border border-gray-200">
                       <div className="flex justify-between items-start mb-2">
                         <div className="flex-1">
                           <h4 className="font-medium text-gray-800 text-sm">{item.product_name}</h4>
@@ -673,6 +802,28 @@ const TableSalesPanel: React.FC<TableSalesPanelProps> = ({ storeId, operatorName
               {/* Cart Summary */}
               {cartItems.length > 0 && (
                 <>
+                  {/* Payment Summary */}
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
+                    <h4 className="font-medium text-blue-800 mb-2">Resumo do Pagamento</h4>
+                    <div className="space-y-1 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-blue-700">Forma:</span>
+                        <span className="font-medium text-blue-800">
+                          {paymentMethod === 'dinheiro' ? 'Dinheiro' :
+                           paymentMethod === 'pix' ? 'PIX' :
+                           paymentMethod === 'cartao_credito' ? 'Cartão de Crédito' :
+                           paymentMethod === 'cartao_debito' ? 'Cartão de Débito' : 'Voucher'}
+                        </span>
+                      </div>
+                      {changeFor && (
+                        <div className="flex justify-between">
+                          <span className="text-blue-700">Troco para:</span>
+                          <span className="font-medium text-blue-800">{formatPrice(changeFor)}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
                   <div className="border-t pt-4 space-y-2 mb-6">
                     <div className="flex justify-between font-bold text-lg">
                       <span>Total:</span>
